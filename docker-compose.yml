@@ -1,0 +1,31 @@
+version: '3'
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"  
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  app:
+    build:
+      context: . 
+      dockerfile: dockerfile  
+    container_name: lambiengcode/waterbus-combine-video
+    depends_on:
+      - rabbitmq 
+    volumes:
+      - .:/app
+    ports:
+      - "${FLASK_PORT}:${FLASK_PORT}" 
+    command: ["python", "app.py"]
+    env_file:
+      - .env 
+
+volumes:
+  rabbitmq_data:

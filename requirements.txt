@@ -1,0 +1,6 @@
+moviepy
+opencv-python
+pika
+Pillow
+Flask
+python-dotenv
