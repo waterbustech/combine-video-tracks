@@ -1,15 +1,28 @@
-# Use the official Python 3.8 base image
-FROM python:3.8
+FROM python:3.9
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy the requirements file into the container
-COPY requirements.txt .
+ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PIP_NO_CACHE_DIR false
 
-# Install system dependencies and Python packages
-RUN apt-get update && apt-get install -y \
-        ffmpeg libsm6 libxext6 libgl1-mesa-glx && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install pipenv
+RUN apt-get -y update && apt-get -y install ffmpeg imagemagick
+
+# Install some special fonts we use in testing, etc..
+RUN apt-get -y install fonts-liberation
+
+RUN apt-get install -y locales && \
+    locale-gen C.UTF-8 && \
+    /usr/sbin/update-locale LANG=C.UTF-8
+
+ENV LC_ALL C.UTF-8
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# modify ImageMagick policy file so that Textclips work correctly.
+RUN sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
 # Copy the application code into the container
 COPY app.py .

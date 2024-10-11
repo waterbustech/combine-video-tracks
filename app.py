@@ -16,6 +16,18 @@ from datetime import datetime
 import uuid
 import numpy as np
 from PIL import Image
+import logging
+
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s [%(levelname)s] %(message)s',  
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
 
 load_dotenv()
 
@@ -56,7 +68,7 @@ def upload_videos():
             saved_files.append(
                 {"original_name": uploaded_file.filename, "saved_name": unique_filename})
         except Exception as e:
-            print(f"Error saving file {uploaded_file.filename}: {e}")
+            logger.error(f"Error saving file {uploaded_file.filename}: {e}")
             return jsonify({"error": f"Failed to save file {uploaded_file.filename}"}), 500
 
     return jsonify({"files": saved_files}), 200
@@ -112,7 +124,7 @@ def determine_layout(num_tracks):
 
 def create_text_clip(text, fontsize=24, color='white', padding=10):
     text_clip = TextClip(text, fontsize=fontsize,
-                         color=color, font='Arial-Bold')
+                         color=color, font='DejaVu-Serif-Bold')
     text_width, text_height = text_clip.size
     background = ColorClip(
         size=(text_width + 2 * padding, text_height + 2 * padding),
@@ -134,7 +146,7 @@ def combine_tracks(participant_tracks, output_path):
                 preloaded_clips[track.videoPath] = VideoFileClip(
                     track.videoPath).resize(newsize=(640, 480))
             except Exception as e:
-                print(f"Error loading video {track.videoPath}: {e}")
+                logger.error(f"Error loading video {track.videoPath}: {e}")
                 preloaded_clips[track.videoPath] = placeholder_clip
 
     for current_time in range(max_end_time + 1):
@@ -151,7 +163,7 @@ def combine_tracks(participant_tracks, output_path):
                     clip = preloaded_clips[track.videoPath].subclip(
                         subclip_start, subclip_end)
                 except Exception as e:
-                    print(f"Error creating subclip for {track.videoPath}: {e}")
+                    logger.error(f"Error creating subclip for {track.videoPath}: {e}")
                     clip = placeholder_clip
 
                 text_clip = create_text_clip(track.name).set_position(
@@ -184,7 +196,7 @@ def combine_tracks(participant_tracks, output_path):
         final_video = concatenate_videoclips(clips, method="compose")
         final_video.write_videofile(output_path, codec='libx264')
     except Exception as e:
-        print(f"Error during video concatenation: {e}")
+        logger.error(f"Error during video concatenation: {e}")
     finally:
         for clip in preloaded_clips.values():
             clip.close()
@@ -201,7 +213,7 @@ def generate_thumbnail(video_path, thumbnail_path, time=1):
         clip.close()
         return thumbnail_path
     except Exception as e:
-        print(f"Error generating thumbnail: {e}")
+        logger.error(f"Error generating thumbnail: {e}")
         return None
 
 
@@ -225,7 +237,7 @@ def create_participant_tracks(participant_data, meeting_start_datetime):
             tracks.append(ParticipantTrack(
                 videoPath, startTime, endTime, name))
         except Exception as e:
-            print(f"Error creating ParticipantTrack: {e}")
+            logger.error(f"Error creating ParticipantTrack: {e}")
     return tracks
 
 
@@ -249,7 +261,7 @@ def process_record(record_id, participant_data, meeting_start_datetime, output_d
 
         return result
     except Exception as e:
-        print(f"Error processing record {record_id}: {e}")
+        logger.error(f"Error processing record {record_id}: {e}")
         return None
 
 
@@ -282,7 +294,7 @@ def callback(ch, method, properties, body):
                     delivery_mode=2,
                 )
             )
-            print(
+            logger.info(
                 f"Processed record_id: {record_id} and sent to 'results' queue with URLs.")
 
             # After successfully processing the record, remove the files from temp_dir
@@ -290,13 +302,13 @@ def callback(ch, method, properties, body):
                 video_file_path = participant['video_file_path']
                 if os.path.exists(video_file_path):
                     os.remove(video_file_path)
-                    print(f"Removed file: {video_file_path}")
+                    logger.info(f"Removed file: {video_file_path}")
         else:
-            print(f"Failed to process record_id: {record_id}")
+            logger.warning(f"Failed to process record_id: {record_id}")
 
         ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
-        print(f"Error in callback: {e}")
+        logger.error(f"Error in callback: {e}")
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
@@ -321,11 +333,11 @@ if __name__ == "__main__":
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(queue='processing', on_message_callback=callback)
 
-    print('Waiting for messages in "processing" queue. To exit press CTRL+C')
+    logger.info('Waiting for messages in "processing" queue. To exit press CTRL+C')
     try:
         channel.start_consuming()
     except KeyboardInterrupt:
-        print('Interrupted')
+        logger.warning('Interrupted')
         channel.stop_consuming()
     finally:
         connection.close()

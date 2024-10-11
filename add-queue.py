@@ -29,31 +29,25 @@ message = {
             "name": "Alice",
             "start_time": "2024-10-07T10:00:00",
             "end_time": "2024-10-07T10:10:00",
-            "video_file_path": "examples/video1.webm"
+            "video_file_path": "video1.webm"
         },
         {
             "name": "Bob",
             "start_time": "2024-10-07T10:02:00",
             "end_time": "2024-10-07T10:12:00",
-            "video_file_path": "examples/video2.webm"
+            "video_file_path": "video2.webm"
         },
         {
             "name": "Charlie",
             "start_time": "2024-10-07T10:04:00",
             "end_time": "2024-10-07T10:14:00",
-            "video_file_path": "examples/video3.webm"
-        },
-        {
-            "name": "Charlie1",
-            "start_time": "2024-10-07T10:05:00",
-            "end_time": "2024-10-07T10:11:00",
-            "video_file_path": "examples/video3.webm"
+            "video_file_path": "video3.webm"
         },
         {
             "name": "Eve",
             "start_time": "2024-10-07T10:06:00",
             "end_time": "2024-10-07T10:16:00",
-            "video_file_path": "examples/video4.webm"
+            "video_file_path": "video4.webm"
         },
     ]
 }
