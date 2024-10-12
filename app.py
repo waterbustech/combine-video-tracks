@@ -17,6 +17,8 @@ import uuid
 import numpy as np
 from PIL import Image
 import logging
+import shutil
+from src.video_utils import reencode_video
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -48,7 +50,7 @@ os.makedirs(temp_dir, exist_ok=True)
 
 @app.route('/uploads', methods=['POST'])
 def upload_videos():
-    """Handle multiple video file uploads and save them with UUID names in .webm format."""
+    """Handle multiple video file uploads, re-encode them to fix duration issues, and save them with UUID names."""
     if 'files' not in request.files:
         return jsonify({"error": "No files provided"}), 400
 
@@ -64,15 +66,35 @@ def upload_videos():
         save_path = os.path.join(temp_dir, unique_filename)
 
         try:
+            # Save the uploaded file
             uploaded_file.save(save_path)
+            file_size = os.path.getsize(save_path)
+            logger.info(f"Saved file {unique_filename} with size {file_size} bytes")
+
+            # Define the path for the re-encoded video
+            fixed_filename = unique_filename.replace('.webm', '_fixed.webm')
+            fixed_save_path = os.path.join(temp_dir, fixed_filename)
+
+            # Re-encode the video to fix duration issues
+            reencoded = reencode_video(save_path, fixed_save_path)
+            if not reencoded:
+                logger.error(f"Failed to re-encode video {unique_filename}")
+                return jsonify({"error": f"Failed to process file {uploaded_file.filename}"}), 500
+
+            # Delete the original uploaded file to save space
+            os.remove(save_path)
+            logger.info(f"Removed original file: {save_path}")
+
+            # Move the fixed file to replace the original uploaded file
+            shutil.move(fixed_save_path, save_path)
+
             saved_files.append(
                 {"original_name": uploaded_file.filename, "saved_name": unique_filename})
         except Exception as e:
-            logger.error(f"Error saving file {uploaded_file.filename}: {e}")
-            return jsonify({"error": f"Failed to save file {uploaded_file.filename}"}), 500
+            logger.error(f"Error processing file {uploaded_file.filename}: {e}")
+            return jsonify({"error": f"Failed to process file {uploaded_file.filename}"}), 500
 
     return jsonify({"files": saved_files}), 200
-
 
 @app.route('/video/<filename>')
 def serve_video(filename):
@@ -122,7 +144,7 @@ def determine_layout(num_tracks):
         ]
 
 
-def create_text_clip(text, fontsize=24, color='white', padding=10):
+def create_text_clip(text, fontsize=12, color='white', padding=10):
     text_clip = TextClip(text, fontsize=fontsize,
                          color=color, font='DejaVu-Serif-Bold')
     text_width, text_height = text_clip.size
@@ -143,8 +165,17 @@ def combine_tracks(participant_tracks, output_path):
     for track in participant_tracks:
         if track.videoPath not in preloaded_clips:
             try:
-                preloaded_clips[track.videoPath] = VideoFileClip(
-                    track.videoPath).resize(newsize=(640, 480))
+                clip = VideoFileClip(track.videoPath)
+                width, height = clip.size
+
+                if height > width:
+                    new_height = 480
+                    new_width = int((new_height / height) * width)
+                else:
+                    new_width = 640
+                    new_height = 480
+
+                preloaded_clips[track.videoPath] = clip.resize(newsize=(new_width, new_height))
             except Exception as e:
                 logger.error(f"Error loading video {track.videoPath}: {e}")
                 preloaded_clips[track.videoPath] = placeholder_clip
@@ -155,21 +186,19 @@ def combine_tracks(participant_tracks, output_path):
         for track in participant_tracks:
             if track.startTime <= current_time <= track.endTime:
                 subclip_start = current_time - track.startTime
-                subclip_end = subclip_start + 1
                 video_duration = preloaded_clips[track.videoPath].duration
-                if subclip_end > video_duration:
-                    subclip_end = video_duration
-                try:
-                    clip = preloaded_clips[track.videoPath].subclip(
-                        subclip_start, subclip_end)
-                except Exception as e:
-                    logger.error(f"Error creating subclip for {track.videoPath}: {e}")
-                    clip = placeholder_clip
+                subclip_end = min(subclip_start + 1, video_duration)
 
-                text_clip = create_text_clip(track.name).set_position(
-                    ('left', 'bottom')).set_duration(clip.duration)
-                clip_with_text = CompositeVideoClip([clip, text_clip])
-                current_clips.append(clip_with_text)
+                if subclip_start < video_duration:
+                    try:
+                        clip = preloaded_clips[track.videoPath].subclip(subclip_start, subclip_end)
+                    except Exception as e:
+                        logger.error(f"Error creating subclip for {track.videoPath}: {e}")
+                        clip = placeholder_clip
+
+                    text_clip = create_text_clip(track.name).set_position(('left', 'bottom')).set_duration(clip.duration)
+                    clip_with_text = CompositeVideoClip([clip, text_clip])
+                    current_clips.append(clip_with_text)
 
         if not current_clips:
             current_clips.append(placeholder_clip)
@@ -178,8 +207,7 @@ def combine_tracks(participant_tracks, output_path):
         arranged_clips = []
 
         for row in layout:
-            arranged_row_clips = [current_clips[i]
-                                  for i in row if i < len(current_clips)]
+            arranged_row_clips = [current_clips[i] for i in row if i < len(current_clips)]
             if arranged_row_clips:
                 arranged_clips.append(arranged_row_clips)
 
@@ -194,9 +222,11 @@ def combine_tracks(participant_tracks, output_path):
 
     try:
         final_video = concatenate_videoclips(clips, method="compose")
-        final_video.write_videofile(output_path, codec='libx264')
+        final_video.write_videofile(output_path, codec='libx264', fps=15)
     except Exception as e:
         logger.error(f"Error during video concatenation: {e}")
+        final_video = concatenate_videoclips(clips, method="compose")
+        final_video.write_videofile(output_path, codec='libx264', fps=15, audio=False)
     finally:
         for clip in preloaded_clips.values():
             clip.close()
@@ -219,8 +249,8 @@ def generate_thumbnail(video_path, thumbnail_path, time=1):
 
 def convert_datetime_to_seconds(start_datetime, end_datetime, meeting_start_datetime):
     startTime = int(
-        (start_datetime - meeting_start_datetime).total_seconds() / 60)
-    endTime = int((end_datetime - meeting_start_datetime).total_seconds() / 60)
+        (start_datetime - meeting_start_datetime).total_seconds())
+    endTime = int((end_datetime - meeting_start_datetime).total_seconds())
     return startTime, endTime
 
 
@@ -232,12 +262,25 @@ def create_participant_tracks(participant_data, meeting_start_datetime):
             start_datetime = datetime.fromisoformat(participant['start_time'])
             end_datetime = datetime.fromisoformat(participant['end_time'])
             videoPath = participant['video_file_path']
+            
+            # Debugging prints
+            print(f"Participant Name: {name}")
+            print(f"Start Time: {start_datetime}")
+            print(f"End Time: {end_datetime}")
+            print(f"Video Path: {videoPath}")
+            
             startTime, endTime = convert_datetime_to_seconds(
                 start_datetime, end_datetime, meeting_start_datetime)
+            
+            # Print converted times
+            print(f"Start Time (seconds): {startTime}")
+            print(f"End Time (seconds): {endTime}")
+            
             tracks.append(ParticipantTrack(
                 videoPath, startTime, endTime, name))
         except Exception as e:
             logger.error(f"Error creating ParticipantTrack: {e}")
+            print(f"Error: {e}")
     return tracks
 
 
@@ -268,6 +311,7 @@ def process_record(record_id, participant_data, meeting_start_datetime, output_d
 def callback(ch, method, properties, body):
     try:
         message = json.loads(body)
+        logger.info(message)
         record_id = message['record_id']
         participant_data = message['participants']
         meeting_start_str = message['meeting_start_time']
@@ -301,7 +345,7 @@ def callback(ch, method, properties, body):
             for participant in participant_data:
                 video_file_path = participant['video_file_path']
                 if os.path.exists(video_file_path):
-                    os.remove(video_file_path)
+                    # os.remove(video_file_path)
                     logger.info(f"Removed file: {video_file_path}")
         else:
             logger.warning(f"Failed to process record_id: {record_id}")
@@ -319,7 +363,7 @@ def start_flask_server():
 if __name__ == "__main__":
     credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
     parameters = pika.ConnectionParameters(
-        host=rabbitmq_host, port=rabbitmq_port, credentials=credentials)
+        host=rabbitmq_host, port=rabbitmq_port, credentials=credentials, heartbeat=720)
 
     flask_thread = Thread(target=start_flask_server)
     flask_thread.start()

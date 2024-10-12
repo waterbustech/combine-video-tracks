@@ -22,33 +22,15 @@ channel.queue_declare(queue='results', durable=True)
 
 # Example message for 'processing' queue
 message = {
-    "record_id": "record_12345",
-    "meeting_start_time": "2024-10-07T10:00:00",
+    "record_id": "125",
+    "meeting_start_time": "2024-10-12 02:41:30",
     "participants": [
         {
-            "name": "Alice",
-            "start_time": "2024-10-07T10:00:00",
-            "end_time": "2024-10-07T10:10:00",
-            "video_file_path": "video1.webm"
-        },
-        {
-            "name": "Bob",
-            "start_time": "2024-10-07T10:02:00",
-            "end_time": "2024-10-07T10:12:00",
-            "video_file_path": "video2.webm"
-        },
-        {
-            "name": "Charlie",
-            "start_time": "2024-10-07T10:04:00",
-            "end_time": "2024-10-07T10:14:00",
-            "video_file_path": "video3.webm"
-        },
-        {
-            "name": "Eve",
-            "start_time": "2024-10-07T10:06:00",
-            "end_time": "2024-10-07T10:16:00",
-            "video_file_path": "video4.webm"
-        },
+            "name": "Waterbus",
+            "start_time": "2024-10-12 02:41:30",
+            "end_time": "2024-10-12 02:41:48",
+            "video_file_path": "dd9ac4ad-1130-4cb2-9d5a-6040e1f4567b.webm"
+        }
     ]
 }
 
