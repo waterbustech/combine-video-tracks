@@ -3,6 +3,7 @@ import os
 import json
 from flask import Flask, send_from_directory, jsonify, request
 from threading import Thread
+from concurrent.futures import ThreadPoolExecutor
 import pika
 from moviepy.editor import (
     VideoFileClip,
@@ -57,44 +58,45 @@ def upload_videos():
     uploaded_files = request.files.getlist('files')
     saved_files = []
 
-    for uploaded_file in uploaded_files:
+    def process_file(uploaded_file):
         if uploaded_file.filename == '':
-            continue
+            return
 
-        # Generate a unique UUID for each file and save it with a .webm extension
         unique_filename = f"{uuid.uuid4()}.webm"
         save_path = os.path.join(temp_dir, unique_filename)
 
         try:
-            # Save the uploaded file
             uploaded_file.save(save_path)
             file_size = os.path.getsize(save_path)
             logger.info(f"Saved file {unique_filename} with size {file_size} bytes")
 
-            # Define the path for the re-encoded video
-            fixed_filename = unique_filename.replace('.webm', '_fixed.webm')
+            fixed_filename = unique_filename.replace('.webm', '_fixed.mp4')
             fixed_save_path = os.path.join(temp_dir, fixed_filename)
 
-            # Re-encode the video to fix duration issues
             reencoded = reencode_video(save_path, fixed_save_path)
             if not reencoded:
                 logger.error(f"Failed to re-encode video {unique_filename}")
-                return jsonify({"error": f"Failed to process file {uploaded_file.filename}"}), 500
+                return {"error": f"Failed to process file {uploaded_file.filename}"}
 
-            # Delete the original uploaded file to save space
             os.remove(save_path)
             logger.info(f"Removed original file: {save_path}")
+            shutil.move(fixed_save_path, save_path.replace('.webm', '.mp4'))
 
-            # Move the fixed file to replace the original uploaded file
-            shutil.move(fixed_save_path, save_path)
-
-            saved_files.append(
-                {"original_name": uploaded_file.filename, "saved_name": unique_filename})
+            return {"original_name": uploaded_file.filename, "saved_name": unique_filename.replace('.webm', '.mp4')}
         except Exception as e:
             logger.error(f"Error processing file {uploaded_file.filename}: {e}")
-            return jsonify({"error": f"Failed to process file {uploaded_file.filename}"}), 500
+            return {"error": f"Failed to process file {uploaded_file.filename}"}
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(process_file, uploaded_files))
+
+    for result in results:
+        if isinstance(result, dict) and "error" in result:
+            return jsonify(result), 500
+        saved_files.append(result)
 
     return jsonify({"files": saved_files}), 200
+
 
 @app.route('/video/<filename>')
 def serve_video(filename):
@@ -345,7 +347,7 @@ def callback(ch, method, properties, body):
             for participant in participant_data:
                 video_file_path = participant['video_file_path']
                 if os.path.exists(video_file_path):
-                    # os.remove(video_file_path)
+                    os.remove(video_file_path)
                     logger.info(f"Removed file: {video_file_path}")
         else:
             logger.warning(f"Failed to process record_id: {record_id}")
