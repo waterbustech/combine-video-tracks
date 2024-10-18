@@ -48,6 +48,7 @@ temp_dir = os.path.abspath("temp")
 
 os.makedirs(temp_dir, exist_ok=True)
 
+processed_record_ids = set()
 
 @app.route('/uploads', methods=['POST'])
 def upload_videos():
@@ -315,6 +316,15 @@ def callback(ch, method, properties, body):
         message = json.loads(body)
         logger.info(message)
         record_id = message['record_id']
+
+        # Skip processing if the record_id has already been processed
+        if record_id in processed_record_ids:
+            logger.info(f"Skipping already processed record_id: {record_id}")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+
+        processed_record_ids.add(record_id)
+        
         participant_data = message['participants']
         meeting_start_str = message['meeting_start_time']
         meeting_start_datetime = datetime.fromisoformat(meeting_start_str)
